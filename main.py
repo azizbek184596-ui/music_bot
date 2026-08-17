@@ -10,31 +10,34 @@ from dotenv import load_dotenv
 import yt_dlp
 
 
-# =========================
+# ==============================
 # SOZLAMALAR
-# =========================
+# ==============================
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN topilmadi!")
-
+    raise RuntimeError(
+        "BOT_TOKEN topilmadi! "
+        "Render Environment Variables ichiga BOT_TOKEN qo'shing."
+    )
 
 logging.basicConfig(
-    level=logging.INFO
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 
-# =========================
-# YOUTUBE QIDIRISH
-# =========================
+# ==============================
+# YOUTUBE QIDIRUV
+# ==============================
 
-async def search_youtube(query):
+async def search_youtube(query: str):
 
     options = {
         "quiet": True,
@@ -46,7 +49,6 @@ async def search_youtube(query):
     def search():
 
         try:
-
             with yt_dlp.YoutubeDL(options) as ydl:
 
                 result = ydl.extract_info(
@@ -69,11 +71,13 @@ async def search_youtube(query):
                     if not video_id:
                         continue
 
+                    title = item.get(
+                        "title",
+                        "Noma'lum"
+                    )
+
                     songs.append({
-                        "title": item.get(
-                            "title",
-                            "Noma'lum"
-                        ),
+                        "title": title,
                         "url": (
                             "https://www.youtube.com/watch?v="
                             + video_id
@@ -84,8 +88,8 @@ async def search_youtube(query):
 
         except Exception as error:
 
-            logging.error(
-                "YouTube xatosi: %s",
+            logging.exception(
+                "YouTube qidiruv xatosi: %s",
                 error
             )
 
@@ -94,27 +98,27 @@ async def search_youtube(query):
     return await asyncio.to_thread(search)
 
 
-# =========================
-# START
-# =========================
+# ==============================
+# /START
+# ==============================
 
 @dp.message(CommandStart())
 async def start_handler(message: Message):
 
     await message.answer(
         "🎵 <b>Music Finder Bot</b>\n\n"
-        "Qo'shiq nomini yozing.\n\n"
+        "Salom! Qo'shiq nomini yuboring.\n\n"
         "Masalan:\n"
-        "Hamdam Sobirov\n"
-        "Yurak\n"
-        "Faded",
+        "🎵 Hamdam Sobirov\n"
+        "🎵 Yurak\n"
+        "🎵 Faded",
         parse_mode="HTML"
     )
 
 
-# =========================
-# QIDIRISH
-# =========================
+# ==============================
+# QIDIRUV
+# ==============================
 
 @dp.message(F.text)
 async def search_handler(message: Message):
@@ -124,62 +128,77 @@ async def search_handler(message: Message):
     if len(query) < 2:
 
         await message.answer(
-            "❗ Qo'shiq nomini yozing."
+            "❗ Qo'shiq nomini to'liqroq yozing."
         )
 
         return
 
     status = await message.answer(
-        "🔎 Qidirilmoqda..."
-    )
-
-    results = await search_youtube(query)
-
-    if not results:
-
-        await status.edit_text(
-            "😔 Hech narsa topilmadi."
-        )
-
-        return
-
-    buttons = []
-
-    for song in results:
-
-        title = song["title"]
-
-        if len(title) > 45:
-            title = title[:45] + "..."
-
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"▶️ {title}",
-                url=song["url"]
-            )
-        ])
-
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=buttons
-    )
-
-    await status.edit_text(
-        f"🎵 <b>Natijalar</b>\n\n"
-        f"🔎 {query}\n\n"
-        f"Kerakli qo'shiqni tanlang:",
-        reply_markup=keyboard,
+        "🔎 <b>Qidirilmoqda...</b>",
         parse_mode="HTML"
     )
 
+    try:
 
-# =========================
+        results = await search_youtube(query)
+
+        if not results:
+
+            await status.edit_text(
+                "😔 Hech narsa topilmadi.\n\n"
+                "Boshqa qo'shiq nomini sinab ko'ring."
+            )
+
+            return
+
+        buttons = []
+
+        for song in results:
+
+            title = song["title"]
+
+            if len(title) > 45:
+                title = title[:45] + "..."
+
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"▶️ {title}",
+                    url=song["url"]
+                )
+            ])
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=buttons
+        )
+
+        await status.edit_text(
+            f"🎵 <b>Natijalar</b>\n\n"
+            f"🔎 {query}\n\n"
+            f"Kerakli qo'shiqni tanlang:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as error:
+
+        logging.exception(
+            "Bot qidiruv xatosi: %s",
+            error
+        )
+
+        await status.edit_text(
+            "❌ Qidirishda xatolik yuz berdi."
+        )
+
+
+# ==============================
 # RENDER WEB SERVER
-# =========================
+# ==============================
 
 async def health(request):
 
     return web.Response(
-        text="Music Finder Bot ishlayapti!"
+        text="Music Finder Bot ishlayapti! ✅"
     )
 
 
@@ -189,6 +208,11 @@ async def start_web_server():
 
     app.router.add_get(
         "/",
+        health
+    )
+
+    app.router.add_get(
+        "/health",
         health
     )
 
@@ -212,14 +236,14 @@ async def start_web_server():
     await site.start()
 
     logging.info(
-        "Web server ishga tushdi: %s",
+        "Web server %s-portda ishga tushdi",
         port
     )
 
 
-# =========================
-# MAIN
-# =========================
+# ==============================
+# ASOSIY ISHGA TUSHIRISH
+# ==============================
 
 async def main():
 
@@ -229,9 +253,25 @@ async def main():
         "Telegram bot ishga tushmoqda..."
     )
 
+    # Eski webhook bo'lsa o'chiradi
+    await bot.delete_webhook(
+        drop_pending_updates=True
+    )
+
     await dp.start_polling(bot)
 
 
+# ==============================
+# START
+# ==============================
+
 if __name__ == "__main__":
 
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+
+    except KeyboardInterrupt:
+
+        logging.info(
+            "Bot to'xtatildi."
+        )
