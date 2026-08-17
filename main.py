@@ -33,9 +33,8 @@ dp.include_router(router)
 search_cache: dict[str, dict] = {}
 
 YOUTUBE_EXTRA_OPTS = {
-    "extractor_args": {"youtube": {"player_client": ["android"]}},
-    "http_headers": {
-        "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip"
+    "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+}
     },
 }
 
@@ -46,7 +45,7 @@ def search_youtube(query: str, limit: int = 5) -> list[dict]:
         "default_search": f"ytsearch{limit}",
         "noplaylist": True,
         "extract_flat": True,
-        **YOUTUBE_EXTRA_OPTS,
+    
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(query, download=False)
