@@ -16,23 +16,16 @@ dp = Dispatcher()
 
 logging.basicConfig(level=logging.INFO)
 
-# yt-dlp sozlamalari
-YDL_OPTS = {
-    "format": "bestaudio/best",
-    "quiet": True,
-    "no_warnings": True,
-    "noplaylist": True,
-    "default_search": "ytsearch5",
-    "extract_flat": "in_playlist",
-    "geo_bypass": True,
-    "socket_timeout": 20,
-}
 
-
-async def search_songs(query: str, limit: int = 5):
-    """YouTube dan qidiruv"""
-    opts = YDL_OPTS.copy()
-    opts["default_search"] = f"ytsearch{limit}"
+async def search_soundcloud(query: str, limit: int = 6):
+    """SoundCloud dan qidiruv"""
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "default_search": f"scsearch{limit}",
+        "ignoreerrors": True,
+    }
 
     def _search():
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -41,17 +34,18 @@ async def search_songs(query: str, limit: int = 5):
                 entries = result.get("entries", [])
                 songs = []
                 for entry in entries:
-                    if entry:
-                        songs.append({
-                            "id": entry.get("id"),
-                            "title": entry.get("title", "Noma'lum"),
-                            "url": f"https://www.youtube.com/watch?v={entry.get('id')}",
-                            "duration": entry.get("duration"),
-                            "uploader": entry.get("uploader") or entry.get("channel", "Noma'lum")
-                        })
+                    if not entry:
+                        continue
+                    songs.append({
+                        "id": entry.get("id"),
+                        "title": entry.get("title", "Noma'lum"),
+                        "url": entry.get("url") or entry.get("webpage_url"),
+                        "duration": entry.get("duration"),
+                        "uploader": entry.get("uploader") or entry.get("artist", "Noma'lum"),
+                    })
                 return songs
             except Exception as e:
-                logging.error(f"Qidiruv xatosi: {e}")
+                logging.error(f"SoundCloud qidiruv xatosi: {e}")
                 return []
 
     return await asyncio.to_thread(_search)
@@ -69,7 +63,6 @@ async def download_audio(url: str, filename: str):
             "preferredcodec": "mp3",
             "preferredquality": "192",
         }],
-        "geo_bypass": True,
     }
 
     def _download():
@@ -83,8 +76,9 @@ async def download_audio(url: str, filename: str):
 async def start_handler(message: Message):
     await message.answer(
         "Salom! 🎵\n\n"
-        "Menga qo'shiq nomini yozing, men topib beraman.\n"
-        "Masalan: <b>Hamdam sobirov</b>",
+        "Men <b>SoundCloud</b> dan musiqa qidiraman.\n"
+        "Qo'shiq nomini yozing, masalan:\n"
+        "<code>Hamdam sobirov</code>",
         parse_mode=ParseMode.HTML
     )
 
@@ -93,62 +87,71 @@ async def start_handler(message: Message):
 async def search_handler(message: Message):
     query = message.text.strip()
     if len(query) < 2:
-        await message.answer("Iltimos, qo'shiq nomini to'liqroq yozing.")
+        await message.answer("Iltimos, qo'shiq nomini yozing.")
         return
 
-    wait_msg = await message.answer("🔍 Qidirilmoqda...")
+    wait_msg = await message.answer("🔍 SoundCloud dan qidirilmoqda...")
 
-    songs = await search_songs(query)
+    songs = await search_soundcloud(query)
 
     if not songs:
         await wait_msg.edit_text("Hech narsa topilmadi 😔")
         return
 
-    # Tugmalar yaratish
     buttons = []
     for i, song in enumerate(songs):
-        duration = f"{song['duration'] // 60}:{song['duration'] % 60:02d}" if song['duration'] else "—"
-        text = f"{i+1}. {song['title'][:45]} ({duration})"
+        duration = ""
+        if song.get("duration"):
+            mins = song["duration"] // 60
+            secs = song["duration"] % 60
+            duration = f" ({mins}:{secs:02d})"
+        
+        title = song["title"][:50]
         buttons.append([
             InlineKeyboardButton(
-                text=text,
-                callback_data=f"song_{song['id']}"
+                text=f"{i+1}. {title}{duration}",
+                callback_data=f"sc_{song['id']}"
             )
         ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     await wait_msg.edit_text(
-        f"<b>Qidiruv natijalari:</b> <i>{query}</i>\n\nTanlang:",
+        f"<b>SoundCloud natijalari:</b> <i>{query}</i>\n\nTanlang:",
         reply_markup=keyboard,
         parse_mode=ParseMode.HTML
     )
 
 
-@dp.callback_query(F.data.startswith("song_"))
+@dp.callback_query(F.data.startswith("sc_"))
 async def download_handler(callback: CallbackQuery):
-    video_id = callback.data.split("_")[1]
-    url = f"https://www.youtube.com/watch?v={video_id}"
+    track_id = callback.data.split("_", 1)[1]
+    
+    # SoundCloud track URL yasash
+    url = f"https://soundcloud.com/{track_id}" if not track_id.startswith("http") else track_id
 
     await callback.answer("Yuklab olinmoqda...")
     await callback.message.edit_text("⏳ Yuklab olinmoqda, biroz kuting...")
 
-    filename = f"temp_{video_id}.mp3"
+    filename = f"sc_{track_id[:20]}.mp3"
 
     try:
         await download_audio(url, filename)
 
-        # Fayl mavjudligini tekshirish
-        if not os.path.exists(filename):
-            # Ba'zan .mp3 o'rniga boshqa nom bilan saqlanadi
-            for f in os.listdir("."):
-                if f.startswith(f"temp_{video_id}") and f.endswith(".mp3"):
-                    filename = f
-                    break
+        # Faylni topish
+        real_file = None
+        for f in os.listdir("."):
+            if f.startswith(f"sc_{track_id[:20]}") and f.endswith(".mp3"):
+                real_file = f
+                break
 
-        audio = FSInputFile(filename)
+        if not real_file or not os.path.exists(real_file):
+            await callback.message.edit_text("Yuklab olishda xatolik yuz berdi 😔")
+            return
+
+        audio = FSInputFile(real_file)
         await callback.message.answer_audio(
             audio=audio,
-            caption="✅ Tayyor!"
+            caption="✅ SoundCloud dan tayyor!"
         )
         await callback.message.delete()
 
@@ -157,13 +160,17 @@ async def download_handler(callback: CallbackQuery):
         await callback.message.edit_text("Yuklab olishda xatolik yuz berdi 😔")
 
     finally:
-        # Vaqtinchalik faylni o'chirish
-        if os.path.exists(filename):
-            os.remove(filename)
+        # Vaqtinchalik fayllarni tozalash
+        for f in os.listdir("."):
+            if f.startswith("sc_") and f.endswith(".mp3"):
+                try:
+                    os.remove(f)
+                except:
+                    pass
 
 
 async def main():
-    print("Bot ishga tushdi...")
+    print("SoundCloud Music Bot ishga tushdi...")
     await dp.start_polling(bot)
 
 
