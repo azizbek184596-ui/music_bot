@@ -219,6 +219,7 @@ async def start_web_server():
 
 
 async def run_bot_forever():
+    await bot.delete_webhook(drop_pending_updates=True)
     while True:
         try:
             log.info("Bot polling boshlandi...")
