@@ -1,175 +1,353 @@
 import asyncio
-import os
 import logging
+import os
+
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.filters import CommandStart
-from aiogram.enums import ParseMode
+from aiogram.types import (
+    Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from dotenv import load_dotenv
 import yt_dlp
+
+
+# =========================
+# SOZLAMALAR
+# =========================
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+if not BOT_TOKEN:
+    raise RuntimeError(
+        "BOT_TOKEN topilmadi! Render Environment Variables "
+        "ichiga BOT_TOKEN qo'shing."
+    )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-logging.basicConfig(level=logging.INFO)
 
+# =========================
+# YOUTUBE QIDIRUV
+# =========================
 
-async def search_youtube(query: str, limit: int = 5):
-    opts = {
+async def search_youtube(query, limit=5):
+
+    options = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": True,
-        "default_search": f"ytsearch{limit}",
         "ignoreerrors": True,
     }
 
-    def _search():
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            try:
-                result = ydl.extract_info(query, download=False)
-                entries = result.get("entries", [])
+    def search():
+
+        try:
+
+            with yt_dlp.YoutubeDL(options) as ydl:
+
+                result = ydl.extract_info(
+                    f"ytsearch{limit}:{query}",
+                    download=False
+                )
+
+                if not result:
+                    return []
+
                 songs = []
-                for entry in entries:
-                    if not entry:
+
+                for item in result.get("entries", []):
+
+                    if not item:
                         continue
+
+                    video_id = item.get("id")
+
+                    if not video_id:
+                        continue
+
                     songs.append({
                         "source": "YouTube",
-                        "id": entry.get("id"),
-                        "title": entry.get("title", "Noma'lum"),
-                        "url": f"https://www.youtube.com/watch?v={entry.get('id')}",
-                        "duration": entry.get("duration"),
-                        "uploader": entry.get("uploader") or entry.get("channel", "Noma'lum"),
+                        "title": item.get(
+                            "title",
+                            "Noma'lum"
+                        ),
+                        "url": (
+                            "https://www.youtube.com/watch?v="
+                            + video_id
+                        ),
                     })
+
                 return songs
-            except Exception as e:
-                logging.error(f"YouTube xato: {e}")
-                return []
 
-    return await asyncio.to_thread(_search)
+        except Exception as error:
+
+            logging.error(
+                "YouTube xatosi: %s",
+                error
+            )
+
+            return []
+
+    return await asyncio.to_thread(search)
 
 
-async def search_soundcloud(query: str, limit: int = 4):
-    opts = {
+# =========================
+# SOUNDCLOUD QIDIRUV
+# =========================
+
+async def search_soundcloud(query, limit=5):
+
+    options = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": True,
-        "default_search": f"scsearch{limit}",
         "ignoreerrors": True,
     }
 
-    def _search():
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            try:
-                result = ydl.extract_info(query, download=False)
-                entries = result.get("entries", [])
+    def search():
+
+        try:
+
+            with yt_dlp.YoutubeDL(options) as ydl:
+
+                result = ydl.extract_info(
+                    f"scsearch{limit}:{query}",
+                    download=False
+                )
+
+                if not result:
+                    return []
+
                 songs = []
-                for entry in entries:
-                    if not entry:
+
+                for item in result.get("entries", []):
+
+                    if not item:
                         continue
+
+                    url = (
+                        item.get("webpage_url")
+                        or item.get("url")
+                    )
+
+                    if not url:
+                        continue
+
                     songs.append({
                         "source": "SoundCloud",
-                        "id": entry.get("id"),
-                        "title": entry.get("title", "Noma'lum"),
-                        "url": entry.get("url") or entry.get("webpage_url"),
-                        "duration": entry.get("duration"),
-                        "uploader": entry.get("uploader") or entry.get("artist", "Noma'lum"),
+                        "title": item.get(
+                            "title",
+                            "Noma'lum"
+                        ),
+                        "url": url,
                     })
+
                 return songs
-            except Exception as e:
-                logging.error(f"SoundCloud xato: {e}")
-                return []
 
-    return await asyncio.to_thread(_search)
+        except Exception as error:
+
+            logging.error(
+                "SoundCloud xatosi: %s",
+                error
+            )
+
+            return []
+
+    return await asyncio.to_thread(search)
 
 
-async def download_audio(url: str, filename: str):
-    opts = {
-        "format": "bestaudio/best",
-        "outtmpl": filename,
-        "quiet": True,
-        "no_warnings": True,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }],
-        "geo_bypass": True,
-    }
-
-    def _download():
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([url])
-
-    await asyncio.to_thread(_download)
-
+# =========================
+# /START
+# =========================
 
 @dp.message(CommandStart())
 async def start_handler(message: Message):
+
     await message.answer(
-        "Salom! 🎵\n\n"
-        "Men <b>YouTube</b> va <b>SoundCloud</b> dan musiqa qidiraman.\n"
-        "Qo'shiq nomini yozing.\n\n"
-        "Masalan: <code>Hamdam sobirov</code>",
-        parse_mode=ParseMode.HTML
+        "🎵 <b>Music Bot</b>\n\n"
+        "Qo'shiq nomini yozing.\n"
+        "Men YouTube va SoundCloud'dan "
+        "natijalarni topib beraman.\n\n"
+        "Masalan:\n"
+        "Hamdam Sobirov\n"
+        "Yurak\n"
+        "Alan Walker Faded",
+        parse_mode="HTML",
     )
 
+
+# =========================
+# QIDIRUV
+# =========================
 
 @dp.message(F.text)
 async def search_handler(message: Message):
+
     query = message.text.strip()
+
     if len(query) < 2:
-        await message.answer("Iltimos, qo'shiq nomini yozing.")
+
+        await message.answer(
+            "❗ Qo'shiq nomini to'liqroq yozing."
+        )
+
         return
 
-    wait_msg = await message.answer("🔍 Qidirilmoqda (YouTube + SoundCloud)...")
+    status = await message.answer(
+        "🔎 <b>Qidirilmoqda...</b>\n\n"
+        "YouTube + SoundCloud",
+        parse_mode="HTML",
+    )
 
-    # Parallel qidiruv
-    yt_task = search_youtube(query)
-    sc_task = search_soundcloud(query)
-    yt_results, sc_results = await asyncio.gather(yt_task, sc_task)
+    try:
 
-    songs = yt_results + sc_results
+        youtube_task = search_youtube(query)
+        soundcloud_task = search_soundcloud(query)
 
-    if not songs:
-        await wait_msg.edit_text("Hech narsa topilmadi 😔")
-        return
-
-    buttons = []
-    for i, song in enumerate(songs[:8]):  # maksimal 8 ta
-        duration = ""
-        if song.get("duration"):
-            mins = int(song["duration"] // 60)
-            secs = int(song["duration"] % 60)
-            duration = f" {mins}:{secs:02d}"
-
-        source_emoji = "▶️" if song["source"] == "YouTube" else "☁️"
-        title = song["title"][:42]
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"{source_emoji} {title}{duration}",
-                callback_data=f"dl_{song['source'][:2]}_{song['id']}"
+        youtube_results, soundcloud_results = (
+            await asyncio.gather(
+                youtube_task,
+                soundcloud_task
             )
-        ])
+        )
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await wait_msg.edit_text(
-        f"<b>Natijalar:</b> <i>{query}</i>\n\nTanlang:",
-        reply_markup=keyboard,
-        parse_mode=ParseMode.HTML
+        results = (
+            youtube_results
+            + soundcloud_results
+        )
+
+        if not results:
+
+            await status.edit_text(
+                "😔 Hech narsa topilmadi.\n\n"
+                "Boshqa qo'shiq nomini sinab ko'ring."
+            )
+
+            return
+
+        buttons = []
+
+        for song in results[:10]:
+
+            if song["source"] == "YouTube":
+                emoji = "▶️"
+            else:
+                emoji = "☁️"
+
+            title = song["title"]
+
+            if len(title) > 45:
+                title = title[:45] + "..."
+
+            button = InlineKeyboardButton(
+                text=f"{emoji} {title}",
+                url=song["url"]
+            )
+
+            buttons.append([button])
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=buttons
+        )
+
+        await status.edit_text(
+            f"🎵 <b>Natijalar:</b>\n"
+            f"<i>{query}</i>\n\n"
+            f"Kerakli qo'shiqni tanlang:",
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+
+    except Exception as error:
+
+        logging.exception(
+            "Qidiruv xatosi: %s",
+            error
+        )
+
+        await status.edit_text(
+            "❌ Qidirishda xatolik yuz berdi."
+        )
+
+
+# =========================
+# RENDER WEB SERVER
+# =========================
+
+async def health(request):
+
+    return web.Response(
+        text="Music Bot ishlayapti ✅"
     )
 
 
-@dp.callback_query(F.data.startswith("dl_"))
-async def download_handler(callback: CallbackQuery):
-    parts = callback.data.split("_", 2)
-    source = parts[1]  # YT yoki SC
-    track_id = parts[2]
+async def start_web_server():
 
-    if source == "YT":
-        url = f"https://www.youtube.com/watch?v={track_id}"
-    else:
-        url = f"https://soundcloud.com/{track_id}" if not track_id.startswith("http") else track_id
+    app = web.Application()
+
+    app.router.add_get(
+        "/",
+        health
+    )
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000"
+        )
+    )
+
+    runner = web.AppRunner(app)
+
+    await runner.setup()
+
+    site = web.TCPSite(
+        runner,
+        "0.0.0.0",
+        port
+    )
+
+    await site.start()
+
+    logging.info(
+        "Web server %s-portda ishga tushdi",
+        port
+    )
+
+
+# =========================
+# BOTNI ISHGA TUSHIRISH
+# =========================
+
+async def main():
+
+    await start_web_server()
+
+    logging.info(
+        "Telegram bot ishga tushdi..."
+    )
+
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+
+    try:
+        asyncio.run(main())
+
+    except KeyboardInterrupt:
+
+        logging.info(
+            "Bot to'xtatildi."
+        )
