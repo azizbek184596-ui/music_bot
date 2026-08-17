@@ -35,8 +35,6 @@ search_cache: dict[str, dict] = {}
 YOUTUBE_EXTRA_OPTS = {
     "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
 }
-    },
-}
 
 
 def search_youtube(query: str, limit: int = 5) -> list[dict]:
@@ -45,7 +43,6 @@ def search_youtube(query: str, limit: int = 5) -> list[dict]:
         "default_search": f"ytsearch{limit}",
         "noplaylist": True,
         "extract_flat": True,
-    
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(query, download=False)
