@@ -3,6 +3,7 @@ import logging
 import os
 import uuid
 
+import requests
 from aiohttp import web
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -36,30 +37,46 @@ YOUTUBE_EXTRA_OPTS = {
     "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
 }
 
+INVIDIOUS_INSTANCES = [
+    "https://invidious.f5.si",
+    "https://yewtu.be",
+    "https://invidious.jing.rocks",
+    "https://inv.nadeko.net",
+]
+
 
 def search_youtube(query: str, limit: int = 5) -> list[dict]:
-    ydl_opts = {
-        "quiet": True,
-        "default_search": f"ytsearch{limit}",
-        "noplaylist": True,
-        "extract_flat": True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(query, download=False)
-        entries = info.get("entries", []) if info else []
+    for instance in INVIDIOUS_INSTANCES:
+        try:
+            resp = requests.get(
+                f"{instance}/api/v1/search",
+                params={"q": query, "type": "video"},
+                timeout=8,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            log.warning(f"Invidious instance {instance} failed: {e}")
+            continue
 
-    results = []
-    for entry in entries:
-        results.append(
-            {
-                "id": entry.get("id"),
-                "title": entry.get("title"),
-                "url": f"https://www.youtube.com/watch?v={entry.get('id')}",
-                "duration": entry.get("duration"),
-                "uploader": entry.get("uploader") or entry.get("channel"),
-            }
-        )
-    return results
+        results = []
+        for item in data[:limit]:
+            video_id = item.get("videoId")
+            if not video_id:
+                continue
+            results.append(
+                {
+                    "id": video_id,
+                    "title": item.get("title"),
+                    "url": f"https://www.youtube.com/watch?v={video_id}",
+                    "duration": item.get("lengthSeconds"),
+                    "uploader": item.get("author"),
+                }
+            )
+        if results:
+            return results
+
+    return []
 
 
 def download_audio(url: str, out_path: str) -> str:
